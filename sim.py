@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 import random
 
 class Player:
-    def __init__(self,name,policy,starting_money=0):
-        self.name =  name
-        self.policy = policy
-        self.balance = starting_money
-        self.history =[starting_money]
-        
-    def update(self,reward):
+    def __init__(self, name, policy, starting_money=0):
+        self.name     = name
+        self.policy   = policy
+        self.balance  = starting_money
+        self.history  = []
+
+    def update(self, reward):
         self.balance += reward
-        self.history.append(self.balance)
+
     
     def decide_bet(self,low,high,pot):
         # return min(self.policy(low, high, pot, self.balance), pot, self.balance)
@@ -101,33 +101,50 @@ def ante_up(players,pot,ante: int = 1):
     return pot
 
 if __name__ == "__main__":
-    random.seed(42)                   
+    LOG_EVERY = 1_000
+    n_hands   = 2_000_000
+    n_runs    = 2
 
-    deck = Deck()
-    players = [
-        Player("Alice-Cautious", cautious, starting_money=0),
-        Player("Bob-Greedy",     greedy,   starting_money=0),
-        Player("Carol-Kelly",    kelly_approx, starting_money=0),
-    ]
+    for run in range(n_runs):
+        print(f"\n=== RUN {run+1} ===")
+        random.seed(run)
+        deck = Deck()
+        players = [
+            Player("Alice-Cautious", greedy, starting_money=0),
+            Player("Bob-Greedy",     greedy, starting_money=0),
+            Player("Carol-Kelly",    greedy, starting_money=0),
+        ]
 
-    pot  = 0
-    ante = 1
-    n_hands = 500
-
-    for _ in range(n_hands):
-        pot = ante_up(players, pot, ante)
+        pot, ante = 0, 1
+        n_samples = (n_hands // LOG_EVERY) + 1
         for p in players:
-            pot = turn(p, deck, pot)
+            p.history = [0] * n_samples    # pre-allocate
 
+        sample_idx = 0
 
-    for p in players:
-        print(f"{p.name}: final bankroll {p.balance}")
+        for hand in range(n_hands):
+            pot = ante_up(players, pot, ante)
+            for p in players:
+                pot = turn(p, deck, pot)
+            if len(deck.cards) < 15:
+                deck.shuffle()
 
-
-    for p in players:
-        plt.plot(p.history, label=p.name)
-    plt.xlabel("Hands played")
-    plt.ylabel("Bankroll (infinite mode ignores balance cap)")
-    plt.title("In-Between test run")
-    plt.legend()
-    plt.show()
+            if hand % LOG_EVERY == 0:
+                for p in players:
+                    p.history[sample_idx] = p.balance
+                sample_idx += 1
+        for pl in players:
+            pl.history[sample_idx] = pl.balance
+        
+        x = range(0, n_hands+1, LOG_EVERY)
+        plt.figure(figsize=(8, 3))
+        for p in players:
+            plt.plot(x, p.history, label=p.name)
+            print(f"{p.name}: final bankroll {p.balance}")
+        print(f"Pot: {pot}")
+        plt.xlabel("Hands played")
+        plt.ylabel("Bankroll")
+        plt.title(f"Run {run+1} (sampled every {LOG_EVERY} hands)")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
