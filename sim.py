@@ -1,7 +1,59 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import gymnasium as gym
+from gymnasium import spaces
 
+class InBetweenEnv(gym.Env):
+    metadata = {"render_modes":[]}
+    def __init__(self,ante: int = 1):
+        super().__init__()
+        self.ante = ante
+        self.deck = Deck()
+        self.pot = 0
+        
+        self.action_space = spaces.Discrete(21)                 # we let 0=pass 1 be 5% and so on to 20 being FULL POT
+        self.observation_space = spaces.MultiDiscrete([12,13])    # gap_bucket and pot_bucket
+    def _gap_bucket(self,low,high):
+        return (high - low - 1)
+    
+    def _pot_bucket(self):
+        return min(self.pot//5, 12)
+    
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        if self.pot == 0:
+            self.pot += self.ante
+
+        c1, c2 = self.deck.draw(), self.deck.draw()
+        self.low, self.high = sorted((c1,c2))
+        
+        obs = (self._gap_bucket(self.low, self.high), self._pot_bucket)
+        info = {"low": self.low, "high": self.high}
+        return obs, info
+    
+    def step(self, action):
+        bet_frac = action/20.0
+        bet = int(bet_frac * self.pot)
+        
+        reward = 0
+        if bet > 0:
+            target = self.deck.draw()
+            if self.low < target < self.high:        # win
+                self.pot  -= bet
+                reward = +bet
+            elif target in (self.low, self.high):    # post
+                self.pot  += 2 * bet
+                reward = -2 * bet
+            else:                                    # outside
+                self.pot  += bet
+                reward = -bet
+
+        terminated = True    # hand finished
+        obs = (0, 0)         # dummy; not used after done
+        info = {}
+        return obs, reward, terminated, False, info
+        
 class Player:
     def __init__(self, name, policy, starting_money=0):
         self.name     = name
@@ -42,7 +94,7 @@ def cautious(low: int, high: int, pot: int, bal: int) -> int:
 
 def greedy(low: int, high: int, pot: int, bal: int) -> int:
     """ALL IN BABY"""
-    return pot if (high - low - 1) >= 8 else 0
+    return pot if (high - low - 1) >= 2 else 0
 
 
 def kelly_approx(low: int, high: int, pot: int, bal: int) -> int:
@@ -100,10 +152,10 @@ def ante_up(players,pot,ante: int = 1):
             print(f"{p.name} is out")"""
     return pot
 
-if __name__ == "__main__":
+'''if __name__ == "__main__":
     LOG_EVERY = 1_000
     n_hands   = 2_000_000
-    n_runs    = 2
+    n_runs    = 10
 
     for run in range(n_runs):
         print(f"\n=== RUN {run+1} ===")
@@ -111,8 +163,7 @@ if __name__ == "__main__":
         deck = Deck()
         players = [
             Player("Alice-Cautious", greedy, starting_money=0),
-            Player("Bob-Greedy",     greedy, starting_money=0),
-            Player("Carol-Kelly",    greedy, starting_money=0),
+            Player("Bob-Greedy",     greedy, starting_money=0)
         ]
 
         pot, ante = 0, 1
@@ -147,4 +198,13 @@ if __name__ == "__main__":
         plt.title(f"Run {run+1} (sampled every {LOG_EVERY} hands)")
         plt.legend()
         plt.tight_layout()
-        plt.show()
+        plt.show()'''
+        
+if __name__ == "__main__":
+    env = InBetweenEnv()
+    obs, _ = env.reset()
+    print("Initial obs:", obs)     # e.g. (8, 0)  ← gap 8, pot bucket 0
+    for a in [0, 20, 10]:          # pass, bet pot, bet 50 %
+        _, r, done, _, _ = env.step(a)
+        print("action", a, "reward", r, "done?", done)
+        obs, _ = env.reset()       # start next hand
